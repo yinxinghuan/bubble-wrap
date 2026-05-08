@@ -77,11 +77,11 @@ const IS_TOUCH = typeof window !== 'undefined' && 'ontouchstart' in window;
 const BUBBLE_R = IS_TOUCH ? 32 : 27;
 const BUBBLE_PITCH = IS_TOUCH ? 72 : 60;
 const POP_DURATION_MS = 320;
-const REGROW_DURATION_MS = 1500;
-const REGROW_THRESHOLD = 0.5;
-const REGROW_INTERVAL_MS = 700;
-const DRAG_THROTTLE_MS = 38;
-const HIT_RADIUS = BUBBLE_R + 2;
+const REGROW_DURATION_MS = 1300;
+const REGROW_THRESHOLD = 0.25;     // start regrowing earlier so the wrap never empties
+const REGROW_INTERVAL_MS = 550;
+const TAP_THROTTLE_MS = 38;        // min ms between taps (anti-double-tap)
+const HIT_RADIUS = BUBBLE_R + 4;   // generous hit area for tap-only mode
 
 // pop animation phase splits — anticipation → overshoot → collapse
 const POP_ANTIC_END = 0.18;     // 0..0.18 = compress flat
@@ -1037,13 +1037,20 @@ export default function BubbleWrap() {
     function buildGrid(w: number, h: number) {
       const dx = BUBBLE_PITCH;
       const dy = BUBBLE_PITCH * 0.866;
-      const padding = BUBBLE_R * 0.6;
-      const cols = Math.ceil((w + padding * 2) / dx) + 1;
-      const rows = Math.ceil((h + padding * 2) / dy) + 1;
+      // Reserve safe margins so every bubble is comfortably reachable. Top
+      // covers the theme switcher pill + iOS notch; bottom keeps clear of the
+      // hint text + iOS home indicator + Aigram bottom UI.
+      const safeTop = 96;
+      const safeBottom = 90;
+      const safeSide = 24;
+      const aw = Math.max(80, w - safeSide * 2);
+      const ah = Math.max(80, h - safeTop - safeBottom);
+      const cols = Math.max(2, Math.floor(aw / dx));
+      const rows = Math.max(2, Math.floor(ah / dy));
       const totalW = (cols - 1) * dx + dx / 2;
       const totalH = (rows - 1) * dy;
-      const offX = (w - totalW) / 2;
-      const offY = (h - totalH) / 2;
+      const offX = safeSide + (aw - totalW) / 2;
+      const offY = safeTop + (ah - totalH) / 2;
       const prev = new Map<string, Bubble>();
       for (const b of bubblesRef.current) prev.set(`${b.i},${b.j}`, b);
       const next: Bubble[] = [];
@@ -1200,23 +1207,21 @@ export default function BubbleWrap() {
       if (bubbles.length > 0) {
         const popFrac = poppedFinal / bubbles.length;
         if (popFrac > REGROW_THRESHOLD && t - lastRegrow > REGROW_INTERVAL_MS) {
-          const w = canvas.clientWidth;
-          const h = canvas.clientHeight;
-          const cands = bubbles
-            .filter(b => b.popped && b.popT >= 1)
-            .sort((a, c) => {
-              const eA = Math.min(a.hx, w - a.hx, a.hy, h - a.hy);
-              const eC = Math.min(c.hx, w - c.hx, c.hy, h - c.hy);
-              return eA - eC || a.poppedAt - c.poppedAt;
-            });
-          if (cands.length > 0) {
-            const tgt = cands[0];
-            tgt.popped = false;
-            tgt.popT = 0;
-            tgt.growT = 0;
-            tgt.galaxy = makeGalaxy();
-            tgt.hue = Math.random() * 360;
-            tgt.dx = 0; tgt.dy = 0; tgt.vx = 0; tgt.vy = 0;
+          // FIFO regrow — oldest popped first, regardless of position. The
+          // grid now has safe margins so every cell is reachable; preferring
+          // edges (the old behaviour) made the wrap drift unreachable over
+          // time on certain device aspect ratios.
+          let oldest: Bubble | null = null;
+          for (const b of bubbles) {
+            if (!b.popped || b.popT < 1) continue;
+            if (!oldest || b.poppedAt < oldest.poppedAt) oldest = b;
+          }
+          if (oldest) {
+            oldest.popped = false;
+            oldest.popT = 0;
+            oldest.growT = 0;
+            oldest.hue = Math.random() * 360;
+            oldest.dx = 0; oldest.dy = 0; oldest.vx = 0; oldest.vy = 0;
             lastRegrow = t;
           }
         }
@@ -1359,7 +1364,7 @@ export default function BubbleWrap() {
 
     function popAt(clientX: number, clientY: number) {
       const now = performance.now();
-      if (now - lastPopAtRef.current < DRAG_THROTTLE_MS) return;
+      if (now - lastPopAtRef.current < TAP_THROTTLE_MS) return;
 
       const rect = canvas.getBoundingClientRect();
       const x = clientX - rect.left;
@@ -1417,20 +1422,17 @@ export default function BubbleWrap() {
       if (best) best.pressT = Math.min(1, best.pressT + 0.5);
     }
 
+    // Tap-only — drag/swipe is intentionally NOT wired up. Drag fires too many
+    // pointermove events too fast for iOS Safari's audio thread to keep up
+    // (~5-6 in rapid succession is enough to wedge it). And the drag-sweep
+    // sensation is mild compared to the satisfaction of deliberate single pops.
     const onPointerDown = (e: PointerEvent) => {
       e.preventDefault();
-      canvas.setPointerCapture?.(e.pointerId);
       pressAt(e.clientX, e.clientY);
-      requestAnimationFrame(() => popAt(e.clientX, e.clientY));
-    };
-    const onPointerMove = (e: PointerEvent) => {
-      if (e.buttons > 0 || e.pointerType === 'touch') {
-        popAt(e.clientX, e.clientY);
-      }
+      popAt(e.clientX, e.clientY);
     };
 
     canvas.addEventListener('pointerdown', onPointerDown);
-    canvas.addEventListener('pointermove', onPointerMove);
 
     raf = requestAnimationFrame(frame);
 
@@ -1438,7 +1440,6 @@ export default function BubbleWrap() {
       cancelAnimationFrame(raf);
       ro.disconnect();
       canvas.removeEventListener('pointerdown', onPointerDown);
-      canvas.removeEventListener('pointermove', onPointerMove);
       const a = audioRef.current;
       if (a) {
         try { a.ambient?.stop(); } catch { /* noop */ }
@@ -1475,7 +1476,7 @@ export default function BubbleWrap() {
         ))}
       </div>
 
-      <div className={`bw__hint ${hintHidden ? 'is-hidden' : ''}`}>Tap · Drag</div>
+      <div className={`bw__hint ${hintHidden ? 'is-hidden' : ''}`}>Tap to pop</div>
     </div>
   );
 }
