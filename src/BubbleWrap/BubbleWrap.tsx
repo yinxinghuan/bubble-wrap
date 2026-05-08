@@ -810,7 +810,7 @@ function startAmbient(audio: AudioState, theme: Theme) {
   audio.ambientTheme = theme;
   ambientGain.gain.cancelScheduledValues(now);
   ambientGain.gain.setValueAtTime(0, now);
-  const target = theme === 'cosmic' ? 0.32 : theme === 'honey' ? 0.22 : 0.22;
+  const target = theme === 'cosmic' ? 0.16 : theme === 'honey' ? 0.12 : 0.12;
   ambientGain.gain.linearRampToValueAtTime(target, now + 1.2);
 }
 
