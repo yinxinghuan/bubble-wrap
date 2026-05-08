@@ -554,6 +554,7 @@ interface AudioState {
   ambientGain: GainNode;
   ambient: { stop: () => void } | null;
   ambientTheme: Theme | null;
+  ambientCycleTimer: number | null;
   consec: { count: number; last: number };
   inFlightPops: number;       // currently sustaining pop voices
   lastPopAt: number;          // ctx.currentTime of last pop
@@ -664,7 +665,7 @@ function ensureAudio(ref: { current: AudioState | null }): AudioState | null {
 
   const state: AudioState = {
     ctx, master, reverbIn, ambientGain,
-    ambient: null, ambientTheme: null,
+    ambient: null, ambientTheme: null, ambientCycleTimer: null,
     consec: { count: 0, last: 0 },
     inFlightPops: 0,
     lastPopAt: 0,
@@ -791,10 +792,41 @@ function playPop(audio: AudioState, theme: Theme, perfTs: number) {
 }
 
 // ───── Ambient bed per theme ─────
+// One "swell cycle" = silence → rise → hold → fall → silence. Re-queues itself
+// via setTimeout so the bed breathes instead of droning continuously, with a
+// randomized peak so back-to-back cycles don't sound identical.
+function scheduleAmbientCycle(audio: AudioState) {
+  const { ctx, ambientGain } = audio;
+  if (!audio.ambientTheme || !audio.ambient) return;
+
+  const theme = audio.ambientTheme;
+  const peakBase = theme === 'cosmic' ? 0.10 : 0.07;
+  const peak = peakBase * (0.6 + Math.random() * 0.55);
+
+  const now = ctx.currentTime;
+  const fadeIn  = 5 + Math.random() * 3;     // 5–8s rise
+  const hold    = 8 + Math.random() * 8;     // 8–16s plateau
+  const fadeOut = 6 + Math.random() * 4;     // 6–10s fall
+  const silence = 7 + Math.random() * 9;     // 7–16s silent gap
+
+  ambientGain.gain.cancelScheduledValues(now);
+  ambientGain.gain.setValueAtTime(ambientGain.gain.value, now);
+  ambientGain.gain.linearRampToValueAtTime(peak, now + fadeIn);
+  ambientGain.gain.setValueAtTime(peak, now + fadeIn + hold);
+  ambientGain.gain.linearRampToValueAtTime(0, now + fadeIn + hold + fadeOut);
+
+  const totalMs = (fadeIn + hold + fadeOut + silence) * 1000;
+  audio.ambientCycleTimer = window.setTimeout(() => scheduleAmbientCycle(audio), totalMs);
+}
+
 function startAmbient(audio: AudioState, theme: Theme) {
   if (audio.ambientTheme === theme && audio.ambient) return;
   const { ctx, ambientGain } = audio;
   const now = ctx.currentTime;
+  if (audio.ambientCycleTimer != null) {
+    clearTimeout(audio.ambientCycleTimer);
+    audio.ambientCycleTimer = null;
+  }
   if (audio.ambient) {
     const old = audio.ambient;
     ambientGain.gain.cancelScheduledValues(now);
@@ -810,8 +842,7 @@ function startAmbient(audio: AudioState, theme: Theme) {
   audio.ambientTheme = theme;
   ambientGain.gain.cancelScheduledValues(now);
   ambientGain.gain.setValueAtTime(0, now);
-  const target = theme === 'cosmic' ? 0.16 : theme === 'honey' ? 0.12 : 0.12;
-  ambientGain.gain.linearRampToValueAtTime(target, now + 1.2);
+  scheduleAmbientCycle(audio);
 }
 
 function ambientHoney(audio: AudioState): () => void {
