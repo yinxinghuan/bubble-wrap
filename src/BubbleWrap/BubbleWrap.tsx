@@ -1001,6 +1001,8 @@ export default function BubbleWrap() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [theme, setTheme] = useState<Theme>('cosmic');
   const [hintHidden, setHintHidden] = useState(false);
+  const [popCount, setPopCount] = useState(0);
+  const popCountRef = useRef(0);
 
   const themeRef = useRef<Theme>(theme);
   themeRef.current = theme;
@@ -1394,6 +1396,8 @@ export default function BubbleWrap() {
         }
         spawnBurst(best, now);
         lastPopAtRef.current = now;
+        popCountRef.current += 1;
+        setPopCount(popCountRef.current);
         if (!hintHiddenRef.current) {
           hintHiddenRef.current = true;
           setHintHidden(true);
@@ -1471,7 +1475,14 @@ export default function BubbleWrap() {
         ))}
       </div>
 
-      <div className={`bw__hint ${hintHidden ? 'is-hidden' : ''}`}>Tap to pop</div>
+      <div className="bw__brand">
+        <div className="bw__title">B U B B L E &middot; W R A P</div>
+        {popCount > 0 ? (
+          <div className="bw__count" key={popCount}>{popCount.toLocaleString()}</div>
+        ) : (
+          <div className={`bw__hint ${hintHidden ? 'is-hidden' : ''}`}>tap to pop</div>
+        )}
+      </div>
     </div>
   );
 }
