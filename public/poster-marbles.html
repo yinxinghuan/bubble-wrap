@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Marbles Poster</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@300;500&family=JetBrains+Mono:wght@300;400&display=swap" rel="stylesheet">
+<style>
+  html, body { margin: 0; padding: 0; background: #000; }
+  body { font-family: 'Cormorant Garamond', serif; }
+  #c { display: block; }
+</style>
+</head>
+<body>
+<canvas id="c" width="1024" height="1024"></canvas>
+<script>
+async function main() {
+await document.fonts.ready;
+const c = document.getElementById('c');
+const ctx = c.getContext('2d');
+const W = 1024, H = 1024;
+
+const PALETTE = [
+  { hex: '#e94560', name: 'rose' },
+  { hex: '#ff944a', name: 'amber' },
+  { hex: '#fcd84e', name: 'yellow' },
+  { hex: '#5dd4a5', name: 'mint' },
+  { hex: '#5fb4f0', name: 'sky' },
+  { hex: '#b78fee', name: 'lilac' },
+];
+
+// ─── 1) Background — warm dawn-to-rose sky gradient ───
+{
+  const g = ctx.createLinearGradient(0, 0, 0, H);
+  g.addColorStop(0, '#1a0d2e');
+  g.addColorStop(0.25, '#3d1d44');
+  g.addColorStop(0.55, '#8a3a55');
+  g.addColorStop(0.8, '#d96a5a');
+  g.addColorStop(1, '#f7c084');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, W, H);
+}
+
+// ─── 2) Sun glow behind ───
+{
+  const sun = ctx.createRadialGradient(W * 0.72, H * 0.48, 0, W * 0.72, H * 0.48, 540);
+  sun.addColorStop(0, 'rgba(255, 220, 150, 0.6)');
+  sun.addColorStop(0.5, 'rgba(255, 180, 120, 0.18)');
+  sun.addColorStop(1, 'rgba(255, 180, 120, 0)');
+  ctx.fillStyle = sun;
+  ctx.fillRect(0, 0, W, H);
+}
+
+// ─── 3) Glass marbles cascading ───
+function drawMarble(x, y, r, hex) {
+  // soft elliptical shadow
+  ctx.save();
+  const sh = ctx.createRadialGradient(x, y + r * 0.65, 0, x, y + r * 0.65, r * 1.15);
+  sh.addColorStop(0, 'rgba(15, 5, 25, 0.5)');
+  sh.addColorStop(1, 'rgba(15, 5, 25, 0)');
+  ctx.fillStyle = sh;
+  ctx.beginPath();
+  ctx.ellipse(x, y + r * 0.65, r * 1.0, r * 0.42, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+
+  // body — radial with subsurface highlight
+  const body = ctx.createRadialGradient(x - r * 0.3, y - r * 0.38, r * 0.05, x, y, r);
+  body.addColorStop(0, 'rgba(255, 255, 255, 0.95)');
+  body.addColorStop(0.18, hex + 'dd');
+  body.addColorStop(0.7, hex);
+  body.addColorStop(1, shade(hex, -45));
+  ctx.fillStyle = body;
+  ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+
+  // dark rim shadow far side
+  const rim = ctx.createRadialGradient(x + r * 0.25, y + r * 0.3, r * 0.55, x + r * 0.18, y + r * 0.22, r);
+  rim.addColorStop(0, 'rgba(0, 0, 0, 0)');
+  rim.addColorStop(0.85, 'rgba(0, 0, 0, 0.18)');
+  rim.addColorStop(1, 'rgba(0, 0, 0, 0.45)');
+  ctx.fillStyle = rim;
+  ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+
+  // bottom caustic kiss (light through marble)
+  ctx.save();
+  ctx.beginPath(); ctx.arc(x, y, r - 1, 0, Math.PI * 2); ctx.clip();
+  const ca = ctx.createRadialGradient(x, y + r * 0.65, r * 0.05, x, y + r * 0.65, r * 0.55);
+  ca.addColorStop(0, 'rgba(255, 255, 255, 0.5)');
+  ca.addColorStop(1, 'rgba(255, 255, 255, 0)');
+  ctx.fillStyle = ca;
+  ctx.beginPath();
+  ctx.ellipse(x, y + r * 0.55, r * 0.55, r * 0.2, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+
+  // halo
+  const halo = ctx.createRadialGradient(x - r * 0.3, y - r * 0.4, 0, x - r * 0.3, y - r * 0.4, r * 0.55);
+  halo.addColorStop(0, 'rgba(255, 255, 255, 0.6)');
+  halo.addColorStop(0.5, 'rgba(255, 255, 255, 0.18)');
+  halo.addColorStop(1, 'rgba(255, 255, 255, 0)');
+  ctx.fillStyle = halo;
+  ctx.beginPath();
+  ctx.ellipse(x - r * 0.3, y - r * 0.4, r * 0.5, r * 0.32, -0.45, 0, Math.PI * 2);
+  ctx.fill();
+
+  // sharp specular hot spot
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
+  ctx.beginPath();
+  ctx.ellipse(x - r * 0.32, y - r * 0.42, r * 0.13, r * 0.08, -0.45, 0, Math.PI * 2);
+  ctx.fill();
+
+  // small lower highlight
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
+  ctx.beginPath();
+  ctx.ellipse(x + r * 0.42, y + r * 0.42, r * 0.09, r * 0.05, 0.5, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function shade(hex, lum) {
+  // simple lighten/darken
+  hex = hex.replace('#', '');
+  let rgb = [0, 1, 2].map(i => parseInt(hex.substr(i * 2, 2), 16));
+  rgb = rgb.map(v => Math.max(0, Math.min(255, v + lum)));
+  return '#' + rgb.map(v => v.toString(16).padStart(2, '0')).join('');
+}
+
+// Generate cascade — diagonal stream from upper-left to mid-right, plus pile in upper-mid
+const marbles = [];
+const seed = (n) => { let s = n; return () => (s = (s * 1664525 + 1013904223) % 4294967296) / 4294967296; };
+const rnd = seed(42);
+
+// upper cascade: diagonal stream
+for (let i = 0; i < 24; i++) {
+  const t = rnd();
+  const x = 80 + t * 920 + (rnd() - 0.5) * 180;
+  const y = 320 + Math.pow(t, 1.5) * 380 + (rnd() - 0.5) * 60;
+  const r = 32 + rnd() * 36;
+  marbles.push({ x, y, r, c: PALETTE[Math.floor(rnd() * PALETTE.length)].hex });
+}
+
+// lower pile — wider, denser, anchors composition
+for (let i = 0; i < 36; i++) {
+  const x = 30 + rnd() * (W - 60);
+  const y = 760 + (rnd() - 0.5) * 90;
+  const r = 38 + rnd() * 42;
+  marbles.push({ x, y, r, c: PALETTE[Math.floor(rnd() * PALETTE.length)].hex });
+}
+
+// sort by y descending so lower (front) drawn last
+marbles.sort((a, b) => a.y - b.y);
+for (const m of marbles) drawMarble(m.x, m.y, m.r, m.c);
+
+// ─── 4) Subtle vignette to focus center ───
+{
+  const v = ctx.createRadialGradient(W / 2, H / 2, W * 0.4, W / 2, H / 2, W * 0.7);
+  v.addColorStop(0, 'rgba(0, 0, 0, 0)');
+  v.addColorStop(1, 'rgba(0, 0, 0, 0.4)');
+  ctx.fillStyle = v;
+  ctx.fillRect(0, 0, W, H);
+}
+
+// ─── 5) Title in top safe area ───
+ctx.save();
+ctx.textAlign = 'center';
+ctx.textBaseline = 'alphabetic';
+ctx.fillStyle = 'rgba(255, 248, 232, 0.96)';
+ctx.shadowColor = 'rgba(0, 0, 0, 0.55)';
+ctx.shadowBlur = 30;
+ctx.font = '500 134px "Cormorant Garamond", serif';
+// letter-spacing approximation: draw each letter individually with extra spacing
+const title = 'MARBLES';
+const trackEm = 0.34;
+const fontPx = 134;
+ctx.font = `500 ${fontPx}px "Cormorant Garamond", serif`;
+const widths = title.split('').map(ch => ctx.measureText(ch).width);
+const totalW = widths.reduce((a, b) => a + b, 0) + (title.length - 1) * fontPx * trackEm;
+let x = (W - totalW) / 2 + fontPx * trackEm / 2;
+const titleY = 200;
+for (let i = 0; i < title.length; i++) {
+  ctx.fillText(title[i], x + widths[i] / 2, titleY);
+  x += widths[i] + fontPx * trackEm;
+}
+ctx.shadowBlur = 0;
+
+// subtitle
+ctx.fillStyle = 'rgba(255, 248, 232, 0.78)';
+ctx.font = '300 22px "JetBrains Mono", monospace';
+ctx.shadowColor = 'rgba(0, 0, 0, 0.45)';
+ctx.shadowBlur = 14;
+const sub = 'TAP   ·   TILT   ·   MERGE';
+ctx.fillText(sub, W / 2, titleY + 50);
+ctx.restore();
+}
+main();
+</script>
+</body>
+</html>

@@ -255,7 +255,7 @@ function paintCosmicBubble(ctx: CanvasRenderingContext2D, r: number, hueShift: n
   ctx.ellipse(0, 5, r * 0.95, r * 0.85, 0, 0, Math.PI * 2);
   ctx.fill();
 
-  // ─ Body — nebula colored by hueShift (stars drawn LIVE per-bubble) ─
+  // ─ Body — nebula colored by hueShift ─
   const body = ctx.createRadialGradient(-r * 0.15, -r * 0.2, r * 0.05, 0, 0, r);
   body.addColorStop(0, `hsla(${hueShift + 280}, 60%, 45%, 0.92)`);
   body.addColorStop(0.45, `hsla(${hueShift + 250}, 55%, 22%, 0.92)`);
@@ -263,6 +263,32 @@ function paintCosmicBubble(ctx: CanvasRenderingContext2D, r: number, hueShift: n
   body.addColorStop(1, 'rgba(8, 4, 22, 0.7)');
   ctx.fillStyle = body;
   ctx.beginPath(); ctx.arc(0, 0, r, 0, Math.PI * 2); ctx.fill();
+
+  // ─ Stars BAKED into sprite (deterministic per hue bucket) ─
+  // Use hueShift as seed so each bucket has its own galaxy pattern
+  ctx.save();
+  ctx.beginPath(); ctx.arc(0, 0, r - 1, 0, Math.PI * 2); ctx.clip();
+  let seed = Math.floor(hueShift * 13 + 7);
+  const rng = () => {
+    seed = (seed * 1664525 + 1013904223) | 0;
+    return ((seed >>> 0) % 10000) / 10000;
+  };
+  const starCount = 8;
+  for (let k = 0; k < starCount; k++) {
+    const angle = rng() * Math.PI * 2;
+    const dist = Math.pow(rng(), 1.4) * (r - 5);
+    const sx = Math.cos(angle) * dist;
+    const sy = Math.sin(angle) * dist;
+    const sr = rng() * 0.7 + 0.4;
+    const brightness = rng() * 0.5 + 0.5;
+    // halo
+    ctx.fillStyle = `rgba(255, 230, 200, ${brightness * 0.22})`;
+    ctx.beginPath(); ctx.arc(sx, sy, sr * 4, 0, Math.PI * 2); ctx.fill();
+    // core
+    ctx.fillStyle = `rgba(255, 250, 220, ${brightness})`;
+    ctx.beginPath(); ctx.arc(sx, sy, sr, 0, Math.PI * 2); ctx.fill();
+  }
+  ctx.restore();
 
   // ─ Rim ─
   const rim = ctx.createRadialGradient(r * 0.25, r * 0.3, r * 0.55, r * 0.2, r * 0.25, r);
@@ -510,6 +536,8 @@ interface AudioState {
   ambient: { stop: () => void } | null;
   ambientTheme: Theme | null;
   consec: { count: number; last: number };
+  inFlightPops: number;       // currently sustaining pop voices
+  lastPopAt: number;          // ctx.currentTime of last pop
 }
 
 interface ThemeAudio {
@@ -601,6 +629,8 @@ function ensureAudio(ref: { current: AudioState | null }): AudioState | null {
     ctx, master, reverbIn, ambientGain,
     ambient: null, ambientTheme: null,
     consec: { count: 0, last: 0 },
+    inFlightPops: 0,
+    lastPopAt: 0,
   };
   ref.current = state;
   return state;
@@ -611,6 +641,14 @@ function playPop(audio: AudioState, theme: Theme, perfTs: number) {
   const { ctx, master, reverbIn, consec } = audio;
   if (ctx.state === 'suspended') ctx.resume();
   const now = ctx.currentTime;
+
+  // ─ rate-limit: skip if too many sustaining voices or too recent ─
+  if (audio.inFlightPops >= 8) return;
+  if (now - audio.lastPopAt < 0.025) return;     // 40 pops/s max
+  audio.lastPopAt = now;
+  audio.inFlightPops++;
+  const longestDecay = Math.max(cfg.bodyDecay, 0.4);
+  setTimeout(() => { audio.inFlightPops = Math.max(0, audio.inFlightPops - 1); }, longestDecay * 1000 + 50);
 
   if (perfTs - consec.last < CONSEC_RESET_MS) {
     consec.count = Math.min(consec.count + 1, 8);
@@ -1002,7 +1040,9 @@ export default function BubbleWrap() {
 
     let raf = 0;
     let lastTs = performance.now();
+    let lastDraw = 0;
     let lastRegrow = performance.now();
+    const FRAME_MS = 1000 / 60;       // throttle to ~60fps even on 120Hz devices
 
     function spawnBurst(b: Bubble, t: number) {
       const tk = themeRef.current;
@@ -1054,6 +1094,12 @@ export default function BubbleWrap() {
     }
 
     function frame(t: number) {
+      // throttle to ~60fps on 120Hz devices (iPhone Pro etc.)
+      if (t - lastDraw < FRAME_MS - 1) {
+        raf = requestAnimationFrame(frame);
+        return;
+      }
+      lastDraw = t;
       const dt = Math.min(0.05, (t - lastTs) / 1000);
       lastTs = t;
 
@@ -1192,25 +1238,6 @@ export default function BubbleWrap() {
             ctx2d.translate(cx, cy);
             ctx2d.scale(sx, sy);
             ctx2d.drawImage(sprite, -SPRITE_R, -SPRITE_R, SPRITE_SIZE, SPRITE_SIZE);
-
-            // cosmic — galaxies live (clipped)
-            if (tk === 'cosmic') {
-              ctx2d.save();
-              ctx2d.beginPath();
-              ctx2d.arc(0, 0, BUBBLE_R - 1, 0, Math.PI * 2);
-              ctx2d.clip();
-              const rot = (t / 95000) * Math.PI * 2 + (b.hue * Math.PI / 180);
-              ctx2d.rotate(rot);
-              for (const s of b.galaxy) {
-                const tw = 0.5 + 0.5 * Math.sin(t / 350 + s.twinklePhase);
-                const a = s.brightness * (0.6 + 0.4 * tw);
-                ctx2d.fillStyle = `rgba(255, 230, 200, ${a * 0.25})`;
-                ctx2d.beginPath(); ctx2d.arc(s.x, s.y, s.r * 4, 0, Math.PI * 2); ctx2d.fill();
-                ctx2d.fillStyle = `rgba(255, 250, 220, ${a})`;
-                ctx2d.beginPath(); ctx2d.arc(s.x, s.y, s.r, 0, Math.PI * 2); ctx2d.fill();
-              }
-              ctx2d.restore();
-            }
             ctx2d.restore();
           }
         }
