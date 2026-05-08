@@ -1,6 +1,23 @@
 import { useEffect, useRef, useState } from 'react';
-import { Sun, Moon, Sparkles } from 'lucide-react';
+import { Sun, Moon, Sparkles, Trophy } from 'lucide-react';
+import { useGameScore, Leaderboard } from '@shared/leaderboard';
 import './BubbleWrap.less';
+
+// Cumulative lifetime pop counter — never resets per user (the score is
+// "everything you've popped, ever"). Persisted in localStorage and submitted
+// to the leaderboard periodically.
+const LIFETIME_KEY = 'bubble_wrap_lifetime_v1';
+const SUBMIT_EVERY_N_POPS = 10;
+function readLifetime(): number {
+  try {
+    const v = localStorage.getItem(LIFETIME_KEY);
+    const n = v ? parseInt(v, 10) : 0;
+    return Number.isFinite(n) && n >= 0 ? n : 0;
+  } catch { return 0; }
+}
+function writeLifetime(n: number) {
+  try { localStorage.setItem(LIFETIME_KEY, String(n)); } catch { /* quota */ }
+}
 
 // ════════════════════════════════════════════════════════════════
 //                          TYPES & CONFIG
@@ -1000,9 +1017,16 @@ const FLAT_DRAWERS: Record<Theme, (ctx: CanvasRenderingContext2D, b: Bubble, r: 
 export default function BubbleWrap() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [theme, setTheme] = useState<Theme>('cosmic');
-  const [hintHidden, setHintHidden] = useState(false);
-  const [popCount, setPopCount] = useState(0);
-  const popCountRef = useRef(0);
+  const [hintHidden, setHintHidden] = useState(() => readLifetime() > 0);
+  const [popCount, setPopCount] = useState(() => readLifetime());
+  const popCountRef = useRef(readLifetime());
+  const lastSubmittedRef = useRef(popCountRef.current);
+  const [showLeaderboard, setShowLeaderboard] = useState(false);
+
+  const { isInAigram, submitScore, fetchGlobalLeaderboard, fetchFriendsLeaderboard } =
+    useGameScore('bubble-wrap');
+  const submitScoreRef = useRef(submitScore);
+  submitScoreRef.current = submitScore;
 
   const themeRef = useRef<Theme>(theme);
   themeRef.current = theme;
@@ -1397,7 +1421,14 @@ export default function BubbleWrap() {
         spawnBurst(best, now);
         lastPopAtRef.current = now;
         popCountRef.current += 1;
-        setPopCount(popCountRef.current);
+        const total = popCountRef.current;
+        setPopCount(total);
+        writeLifetime(total);
+        // Submit to leaderboard every N pops to avoid network spam
+        if (total - lastSubmittedRef.current >= SUBMIT_EVERY_N_POPS) {
+          lastSubmittedRef.current = total;
+          submitScoreRef.current(total);
+        }
         if (!hintHiddenRef.current) {
           hintHiddenRef.current = true;
           setHintHidden(true);
@@ -1453,6 +1484,23 @@ export default function BubbleWrap() {
     if (a) startAmbient(a, theme);
   }, [theme]);
 
+  // Flush score on tab hide / page close so we don't lose the last few pops.
+  useEffect(() => {
+    function flush() {
+      const total = popCountRef.current;
+      if (total > lastSubmittedRef.current) {
+        lastSubmittedRef.current = total;
+        submitScoreRef.current(total);
+      }
+    }
+    window.addEventListener('visibilitychange', flush);
+    window.addEventListener('pagehide', flush);
+    return () => {
+      window.removeEventListener('visibilitychange', flush);
+      window.removeEventListener('pagehide', flush);
+    };
+  }, []);
+
   return (
     <div className={`bw bw--${theme}`}>
       <canvas ref={canvasRef} className="bw__canvas" />
@@ -1475,6 +1523,16 @@ export default function BubbleWrap() {
         ))}
       </div>
 
+      <button
+        type="button"
+        className="bw__leaderboard-btn"
+        onPointerDown={(e) => { e.preventDefault(); setShowLeaderboard(true); }}
+        onClick={(e) => { e.preventDefault(); setShowLeaderboard(true); }}
+        aria-label="leaderboard"
+      >
+        <Trophy size={18} strokeWidth={1.5} />
+      </button>
+
       <div className="bw__brand">
         <div className="bw__title">B U B B L E &middot; W R A P</div>
         {popCount > 0 ? (
@@ -1483,6 +1541,16 @@ export default function BubbleWrap() {
           <div className={`bw__hint ${hintHidden ? 'is-hidden' : ''}`}>tap to pop</div>
         )}
       </div>
+
+      {showLeaderboard && (
+        <Leaderboard
+          gameName="Bubble Wrap"
+          isInAigram={isInAigram}
+          onClose={() => setShowLeaderboard(false)}
+          fetchGlobal={fetchGlobalLeaderboard}
+          fetchFriends={fetchFriendsLeaderboard}
+        />
+      )}
     </div>
   );
 }
