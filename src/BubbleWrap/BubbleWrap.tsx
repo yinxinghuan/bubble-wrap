@@ -1538,7 +1538,6 @@ export default function BubbleWrap() {
           aria-label="leaderboard"
         >
           <Trophy size={14} strokeWidth={1.6} />
-          <span>LEADERBOARD</span>
         </button>
       </div>
 
