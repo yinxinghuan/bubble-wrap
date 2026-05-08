@@ -113,7 +113,7 @@ const SPRITE_SIZE = SPRITE_R * 2;
 const SOAP_HUE_BUCKETS = 12;
 const COSMIC_HUE_BUCKETS = 8;
 
-const THEME_ORDER: Theme[] = ['honey', 'cosmic', 'soap'];
+const THEME_ORDER: Theme[] = ['cosmic', 'honey', 'soap'];
 
 // ════════════════════════════════════════════════════════════════
 //                        FACTORIES
@@ -999,7 +999,7 @@ const FLAT_DRAWERS: Record<Theme, (ctx: CanvasRenderingContext2D, b: Bubble, r: 
 
 export default function BubbleWrap() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const [theme, setTheme] = useState<Theme>('honey');
+  const [theme, setTheme] = useState<Theme>('cosmic');
   const [hintHidden, setHintHidden] = useState(false);
 
   const themeRef = useRef<Theme>(theme);
@@ -1037,20 +1037,15 @@ export default function BubbleWrap() {
     function buildGrid(w: number, h: number) {
       const dx = BUBBLE_PITCH;
       const dy = BUBBLE_PITCH * 0.866;
-      // Reserve safe margins so every bubble is comfortably reachable. Top
-      // covers the theme switcher pill + iOS notch; bottom keeps clear of the
-      // hint text + iOS home indicator + Aigram bottom UI.
-      const safeTop = 96;
-      const safeBottom = 90;
-      const safeSide = 24;
-      const aw = Math.max(80, w - safeSide * 2);
-      const ah = Math.max(80, h - safeTop - safeBottom);
-      const cols = Math.max(2, Math.floor(aw / dx));
-      const rows = Math.max(2, Math.floor(ah / dy));
+      // Tile the entire viewport. Edge bubbles are decorative wallpaper; FIFO
+      // regrow keeps the centre populated for tapping.
+      const padding = BUBBLE_R * 0.6;
+      const cols = Math.ceil((w + padding * 2) / dx) + 1;
+      const rows = Math.ceil((h + padding * 2) / dy) + 1;
       const totalW = (cols - 1) * dx + dx / 2;
       const totalH = (rows - 1) * dy;
-      const offX = safeSide + (aw - totalW) / 2;
-      const offY = safeTop + (ah - totalH) / 2;
+      const offX = (w - totalW) / 2;
+      const offY = (h - totalH) / 2;
       const prev = new Map<string, Bubble>();
       for (const b of bubblesRef.current) prev.set(`${b.i},${b.j}`, b);
       const next: Bubble[] = [];
