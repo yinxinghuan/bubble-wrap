@@ -1523,16 +1523,6 @@ export default function BubbleWrap() {
         ))}
       </div>
 
-      <button
-        type="button"
-        className="bw__leaderboard-btn"
-        onPointerDown={(e) => { e.preventDefault(); setShowLeaderboard(true); }}
-        onClick={(e) => { e.preventDefault(); setShowLeaderboard(true); }}
-        aria-label="leaderboard"
-      >
-        <Trophy size={18} strokeWidth={1.5} />
-      </button>
-
       <div className="bw__brand">
         <div className="bw__title">B U B B L E &middot; W R A P</div>
         {popCount > 0 ? (
@@ -1540,6 +1530,16 @@ export default function BubbleWrap() {
         ) : (
           <div className={`bw__hint ${hintHidden ? 'is-hidden' : ''}`}>tap to pop</div>
         )}
+        <button
+          type="button"
+          className="bw__leaderboard-btn"
+          onPointerDown={(e) => { e.preventDefault(); setShowLeaderboard(true); }}
+          onClick={(e) => { e.preventDefault(); setShowLeaderboard(true); }}
+          aria-label="leaderboard"
+        >
+          <Trophy size={14} strokeWidth={1.6} />
+          <span>LEADERBOARD</span>
+        </button>
       </div>
 
       {showLeaderboard && (

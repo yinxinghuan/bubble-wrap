@@ -58,58 +58,18 @@
     }
   }
 
-  // ────────────────────── leaderboard button ──────────────────────
-
-  &__leaderboard-btn {
-    position: absolute;
-    top: max(20px, env(safe-area-inset-top));
-    right: 18px;
-    width: 38px;
-    height: 38px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    border: none;
-    border-radius: 999px;
-    cursor: pointer;
-    color: currentColor;
-    backdrop-filter: blur(14px);
-    -webkit-backdrop-filter: blur(14px);
-    -webkit-tap-highlight-color: transparent;
-    touch-action: manipulation;
-    opacity: 0.85;
-    transition: opacity 0.2s ease, transform 0.1s ease, background 0.6s ease, border-color 0.6s ease;
-    z-index: 10;
-
-    &:hover { opacity: 1; }
-    &:active { transform: scale(0.94); }
-  }
-
-  &--cosmic .bw__leaderboard-btn {
-    background: rgba(20, 12, 40, 0.55);
-    border: 1px solid rgba(180, 160, 220, 0.25);
-  }
-  &--honey .bw__leaderboard-btn {
-    background: rgba(255, 240, 200, 0.5);
-    border: 1px solid rgba(255, 230, 160, 0.7);
-  }
-  &--soap .bw__leaderboard-btn {
-    background: rgba(255, 255, 255, 0.55);
-    border: 1px solid rgba(255, 255, 255, 0.7);
-  }
-
   // ────────────────────── brand + counter ──────────────────────
 
   &__brand {
     position: absolute;
-    bottom: calc(max(20px, env(safe-area-inset-bottom)) + 18px);
+    bottom: calc(max(20px, env(safe-area-inset-bottom)) + 14px);
     left: 50%;
     transform: translateX(-50%);
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 8px;
-    pointer-events: none;
+    gap: 6px;
+    pointer-events: none;     // text labels not interactive; button overrides this
     z-index: 5;
     transition: color 0.6s ease;
   }
@@ -145,6 +105,48 @@
     &.is-hidden {
       opacity: 0;
     }
+  }
+
+  &__leaderboard-btn {
+    margin-top: 10px;
+    pointer-events: auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 7px 14px;
+    font-family: inherit;
+    font-size: 10px;
+    letter-spacing: 0.32em;
+    font-weight: 600;
+    text-transform: uppercase;
+    color: currentColor;
+    border: none;
+    border-radius: 999px;
+    cursor: pointer;
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+    opacity: 0.7;
+    transition: opacity 0.2s ease, transform 0.1s ease, background 0.6s ease, border-color 0.6s ease;
+
+    &:hover { opacity: 1; }
+    &:active { transform: scale(0.96); opacity: 0.92; }
+
+    svg { display: block; }
+  }
+
+  &--cosmic .bw__leaderboard-btn {
+    background: rgba(20, 12, 40, 0.45);
+    border: 1px solid rgba(180, 160, 220, 0.22);
+  }
+  &--honey .bw__leaderboard-btn {
+    background: rgba(255, 240, 200, 0.45);
+    border: 1px solid rgba(255, 230, 160, 0.55);
+  }
+  &--soap .bw__leaderboard-btn {
+    background: rgba(255, 255, 255, 0.5);
+    border: 1px solid rgba(255, 255, 255, 0.65);
   }
 
   // ────────────────────── theme color tokens ──────────────────────
