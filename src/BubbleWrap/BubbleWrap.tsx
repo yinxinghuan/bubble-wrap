@@ -72,8 +72,10 @@ interface Flash {
 }
 
 // ─── tunables ──────────────────────────────────────────────────
-const BUBBLE_R = 27;
-const BUBBLE_PITCH = 60;
+// Slightly larger bubbles + spacing on small screens to keep total count down
+const IS_TOUCH = typeof window !== 'undefined' && 'ontouchstart' in window;
+const BUBBLE_R = IS_TOUCH ? 32 : 27;
+const BUBBLE_PITCH = IS_TOUCH ? 72 : 60;
 const POP_DURATION_MS = 320;
 const REGROW_DURATION_MS = 1500;
 const REGROW_THRESHOLD = 0.5;
@@ -538,6 +540,11 @@ interface AudioState {
   consec: { count: number; last: number };
   inFlightPops: number;       // currently sustaining pop voices
   lastPopAt: number;          // ctx.currentTime of last pop
+  resumed: boolean;           // resume() only called once
+  // pre-allocated noise buffers (reused for every pop, no per-pop allocation)
+  transientBuf: AudioBuffer;
+  thockBufs: { honey: AudioBuffer; cosmic: AudioBuffer; soap: AudioBuffer };
+  noiseBufs: { honey: AudioBuffer; cosmic: AudioBuffer; soap: AudioBuffer };
 }
 
 interface ThemeAudio {
@@ -625,12 +632,27 @@ function ensureAudio(ref: { current: AudioState | null }): AudioState | null {
   ambientGain.gain.value = 0;
   ambientGain.connect(master);
 
+  // pre-allocate noise buffers for every theme — never allocated again per pop
+  const transientBuf = noiseBuffer(ctx, 0.005);
+  const thockBufs = {
+    honey: noiseBuffer(ctx, 0.025),
+    cosmic: noiseBuffer(ctx, 0.040),
+    soap: noiseBuffer(ctx, 0.020),
+  };
+  const noiseBufs = {
+    honey: noiseBuffer(ctx, THEME_AUDIO.honey.noiseLen),
+    cosmic: noiseBuffer(ctx, THEME_AUDIO.cosmic.noiseLen),
+    soap: noiseBuffer(ctx, THEME_AUDIO.soap.noiseLen),
+  };
+
   const state: AudioState = {
     ctx, master, reverbIn, ambientGain,
     ambient: null, ambientTheme: null,
     consec: { count: 0, last: 0 },
     inFlightPops: 0,
     lastPopAt: 0,
+    resumed: false,
+    transientBuf, thockBufs, noiseBufs,
   };
   ref.current = state;
   return state;
@@ -639,7 +661,17 @@ function ensureAudio(ref: { current: AudioState | null }): AudioState | null {
 function playPop(audio: AudioState, theme: Theme, perfTs: number) {
   const cfg = THEME_AUDIO[theme];
   const { ctx, master, reverbIn, consec } = audio;
-  if (ctx.state === 'suspended') ctx.resume();
+  // resume() only once, lazily — calling on every pop blocks main thread on iOS
+  if (!audio.resumed && ctx.state === 'suspended') {
+    audio.resumed = true;
+    void ctx.resume();
+  }
+  // Skip audio entirely while the context is still suspended/closed/interrupted.
+  // First pop after page load is usually silent — visual feedback still fires,
+  // and once the context flips to 'running' all subsequent pops play normally.
+  // This prevents the iOS audio thread from queuing 30+ scheduled voices during
+  // a fast first-touch swipe and locking up.
+  if (ctx.state !== 'running') return;
   const now = ctx.currentTime;
 
   // ─ rate-limit: skip if too many sustaining voices or too recent ─
@@ -668,8 +700,7 @@ function playPop(audio: AudioState, theme: Theme, perfTs: number) {
   wetSend.connect(reverbIn);
 
   // ─ L1 transient click (sharp, ear-grabbing) ─
-  const tBuf = noiseBuffer(ctx, 0.005);
-  const tSrc = ctx.createBufferSource(); tSrc.buffer = tBuf;
+  const tSrc = ctx.createBufferSource(); tSrc.buffer = audio.transientBuf;
   const tHpf = ctx.createBiquadFilter(); tHpf.type = 'highpass';
   tHpf.frequency.value = theme === 'honey' ? 2200 : 4200;
   const tGain = ctx.createGain();
@@ -680,8 +711,7 @@ function playPop(audio: AudioState, theme: Theme, perfTs: number) {
 
   // ─ L1.5 thock body (mid-low filtered noise = meaty "POP" core) ─
   const thockLen = theme === 'honey' ? 0.025 : theme === 'cosmic' ? 0.040 : 0.020;
-  const thBuf = noiseBuffer(ctx, thockLen);
-  const thSrc = ctx.createBufferSource(); thSrc.buffer = thBuf;
+  const thSrc = ctx.createBufferSource(); thSrc.buffer = audio.thockBufs[theme];
   const thLp = ctx.createBiquadFilter(); thLp.type = 'lowpass';
   thLp.frequency.value = theme === 'honey' ? 700 : theme === 'cosmic' ? 500 : 1100;
   thLp.Q.value = 2.5;
@@ -729,8 +759,7 @@ function playPop(audio: AudioState, theme: Theme, perfTs: number) {
   }
 
   // ─ L3 filtered noise body ─
-  const nBuf = noiseBuffer(ctx, cfg.noiseLen);
-  const nSrc = ctx.createBufferSource(); nSrc.buffer = nBuf;
+  const nSrc = ctx.createBufferSource(); nSrc.buffer = audio.noiseBufs[theme];
   const nFilt = ctx.createBiquadFilter();
   nFilt.type = 'highpass'; nFilt.frequency.value = cfg.noiseHpf;
   const nFilt2 = ctx.createBiquadFilter();
@@ -981,6 +1010,7 @@ export default function BubbleWrap() {
   const flashesRef = useRef<Flash[]>([]);
   const shockwavesRef = useRef<Shockwave[]>([]);
   const audioRef = useRef<AudioState | null>(null);
+  const ambientStartingRef = useRef(false);
   const lastPopAtRef = useRef(0);
   const hintHiddenRef = useRef(false);
 
@@ -1350,8 +1380,17 @@ export default function BubbleWrap() {
         best.poppedAt = now;
         const a = ensureAudio(audioRef);
         if (a) {
-          startAmbient(a, themeRef.current);
           playPop(a, themeRef.current, now);
+          // Defer the ambient pad — building it (oscillators + reverb + chord
+          // cycler) on the same tick as the first pop chokes iOS audio thread,
+          // which is what surfaces as "swipe-first freezes the page".
+          if (!a.ambient && !ambientStartingRef.current) {
+            ambientStartingRef.current = true;
+            window.setTimeout(() => {
+              const cur = audioRef.current;
+              if (cur) startAmbient(cur, themeRef.current);
+            }, 600);
+          }
         }
         spawnBurst(best, now);
         lastPopAtRef.current = now;
