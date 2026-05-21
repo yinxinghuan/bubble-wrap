@@ -1054,8 +1054,8 @@ export default function BubbleWrap() {
   const lastSubmittedRef = useRef(popCountRef.current);
   const [showLeaderboard, setShowLeaderboard] = useState(false);
 
-  const { isInAigram, submitScore, fetchGlobalLeaderboard, fetchFriendsLeaderboard } =
-    useGameScore('bubble-wrap');
+  const { isInAigram, submitScore, fetchLeaderboard } =
+    useGameScore();
   const submitScoreRef = useRef(submitScore);
   submitScoreRef.current = submitScore;
 
@@ -1577,8 +1577,7 @@ export default function BubbleWrap() {
           gameName="Bubble Wrap"
           isInAigram={isInAigram}
           onClose={() => setShowLeaderboard(false)}
-          fetchGlobal={fetchGlobalLeaderboard}
-          fetchFriends={fetchFriendsLeaderboard}
+          fetch={fetchLeaderboard}
         />
       )}
     </div>

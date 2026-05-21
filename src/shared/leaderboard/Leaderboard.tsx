@@ -1,4 +1,5 @@
-import { type CSSProperties, useCallback, useEffect, useState } from 'react';
+import { type CSSProperties, useEffect, useState } from 'react';
+import { openAigramProfile } from '../runtime/bridge';
 import type { LeaderboardEntry } from './useGameScore';
 import './Leaderboard.less';
 
@@ -7,19 +8,13 @@ import './Leaderboard.less';
 const STRINGS = {
   zh: {
     title: '排行榜',
-    global: '🌍 全局榜',
-    friends: '👥 好友榜',
     me: '我',
     empty: '暂无记录，快来第一个上榜！',
-    emptyFriends: '好友还未上榜，快来邀请他们！',
   },
   en: {
     title: 'Leaderboard',
-    global: '🌍 Global',
-    friends: '👥 Friends',
     me: 'me',
     empty: 'No records yet. Be the first!',
-    emptyFriends: 'No friends on the board yet.',
   },
 } as const;
 
@@ -52,42 +47,26 @@ interface Props {
   gameName: string;
   isInAigram: boolean;
   onClose: () => void;
-  fetchGlobal: () => Promise<LeaderboardEntry[]>;
-  fetchFriends: () => Promise<LeaderboardEntry[]>;
+  fetch: () => Promise<LeaderboardEntry[]>;
 }
-
-type Tab = 'global' | 'friends';
 
 const MEDALS = ['🥇', '🥈', '🥉'];
 const MEDAL_COLORS = ['#FFD700', '#C0C0C0', '#CD7F32'];
 
 // ─── Component ────────────────────────────────────────────────────────────
 
-function openProfile(telegramId: string) {
-  const apiOrigin = new URLSearchParams(window.location.search).get('api_origin');
-  if (!apiOrigin) return;
-  try {
-    const encoded = btoa(JSON.stringify({ id: telegramId }));
-    window.parent.postMessage(`AW.PROFILE.OPEN-${encoded}`, apiOrigin);
-  } catch { /* ignore */ }
-}
-
-export default function Leaderboard({ gameName, isInAigram, onClose, fetchGlobal, fetchFriends }: Props) {
-  const [tab, setTab] = useState<Tab>('global');
+export default function Leaderboard({ gameName, isInAigram, onClose, fetch }: Props) {
   const [entries, setEntries] = useState<LeaderboardEntry[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const load = useCallback(async (type: Tab) => {
+  useEffect(() => {
+    let alive = true;
     setLoading(true);
-    try {
-      const data = type === 'global' ? await fetchGlobal() : await fetchFriends();
-      setEntries(data);
-    } finally {
-      setLoading(false);
-    }
-  }, [fetchGlobal, fetchFriends]);
-
-  useEffect(() => { load(tab); }, [tab]);
+    fetch()
+      .then(data => { if (alive) setEntries(data); })
+      .finally(() => { if (alive) setLoading(false); });
+    return () => { alive = false; };
+  }, [fetch]);
 
   return (
     <div className="lb-backdrop" onPointerDown={e => { if (e.target === e.currentTarget) onClose(); }}>
@@ -105,24 +84,6 @@ export default function Leaderboard({ gameName, isInAigram, onClose, fetchGlobal
           <button className="lb-close" onPointerDown={onClose}>✕</button>
         </div>
 
-        {/* Tabs */}
-        {isInAigram && (
-          <div className="lb-tabs">
-            <button
-              className={`lb-tab ${tab === 'global' ? 'lb-tab--active' : ''}`}
-              onPointerDown={() => setTab('global')}
-            >
-              {s.global}
-            </button>
-            <button
-              className={`lb-tab ${tab === 'friends' ? 'lb-tab--active' : ''}`}
-              onPointerDown={() => setTab('friends')}
-            >
-              {s.friends}
-            </button>
-          </div>
-        )}
-
         {/* List */}
         <div className="lb-body">
           {loading && (
@@ -134,18 +95,16 @@ export default function Leaderboard({ gameName, isInAigram, onClose, fetchGlobal
           {!loading && entries.length === 0 && (
             <div className="lb-state">
               <span className="lb-state__icon">🎮</span>
-              <span className="lb-state__text">
-                {tab === 'friends' ? s.emptyFriends : s.empty}
-              </span>
+              <span className="lb-state__text">{s.empty}</span>
             </div>
           )}
 
           {!loading && entries.map((entry, i) => (
             <div
-              key={entry.telegram_id}
+              key={entry.user_id}
               className={`lb-row ${entry.isMe ? 'lb-row--me' : ''} ${i < 3 ? 'lb-row--top' : ''} ${isInAigram ? 'lb-row--clickable' : ''}`}
               style={i < 3 ? { '--medal-color': MEDAL_COLORS[i] } as CSSProperties : undefined}
-              onClick={isInAigram ? () => openProfile(entry.telegram_id) : undefined}
+              onClick={isInAigram ? () => openAigramProfile(entry.user_id) : undefined}
             >
               <div className="lb-row__rank">
                 {i < 3
