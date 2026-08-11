@@ -10,13 +10,13 @@ const LIFETIME_KEY = 'bubble_wrap_lifetime_v1';
 const SUBMIT_EVERY_N_POPS = 10;
 function readLifetime(): number {
   try {
-    const v = localStorage.getItem(LIFETIME_KEY);
+    const v = alteruLocalStorage.getItem(LIFETIME_KEY);
     const n = v ? parseInt(v, 10) : 0;
     return Number.isFinite(n) && n >= 0 ? n : 0;
   } catch { return 0; }
 }
 function writeLifetime(n: number) {
-  try { localStorage.setItem(LIFETIME_KEY, String(n)); } catch { /* quota */ }
+  try { alteruLocalStorage.setItem(LIFETIME_KEY, String(n)); } catch { /* quota */ }
 }
 
 // ════════════════════════════════════════════════════════════════
